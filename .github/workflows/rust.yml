@@ -11,16 +11,30 @@ env:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v4
     - name: Build
       run: cargo build --verbose
+
+  linter:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
     - name: Linter
       run: cargo clippy -- -D clippy::pedantic -D clippy::cargo -D clippy::nursery -D clippy::alloc_instead_of_core -D missing_debug_implementations -D clippy::expect_used -A clippy::cast_lossless -A clippy::redundant_else -A clippy::multiple_crate_versions -A clippy::cargo_common_metadata -D unused_variables
+
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
     - name: Run tests
       run: cargo test --verbose
-    - name: udeps
-      run: cargo install cargo-udeps && cargo udeps
+
+  udeps:
+    runs-on: ubuntu-latest
+    steps:
+      - name: install udeps
+        run: cargo install cargo-udeps
+      - name: run udeps
+        run: cargo udeps
