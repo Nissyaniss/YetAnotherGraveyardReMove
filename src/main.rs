@@ -6,6 +6,7 @@ use std::env;
 use std::fmt::Write as Write2;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
+use std::path::Path;
 use std::process::exit;
 use std::{fs, path::PathBuf};
 use toml::Value;
@@ -22,7 +23,7 @@ fn main() {
 	let mut files = args.paths.clone();
 	let utils = Utils::new();
 
-	if utils.trash_dir == PathBuf::from("null") {
+	if utils.trash_dir == Path::new("null") {
 		println!("Error getting the config file trash_dir !");
 		exit(1);
 	}
