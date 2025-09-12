@@ -88,3 +88,43 @@ pub fn get_trash_dir(config_file: &Path) -> PathBuf {
 	}
 	trash_dir
 }
+
+#[cfg(test)]
+mod tests {
+	use std::{
+		fs::{self, remove_file, File},
+		path::Path,
+	};
+
+	use crate::config::check;
+
+	#[test]
+	fn config_file_not_present() {
+		let file_path = Path::new("config_file_not_present.toml");
+
+		check(file_path, "config");
+
+		let contents = fs::read_to_string(file_path).unwrap();
+
+		assert!(file_path.exists());
+		assert_eq!(contents, String::from("config"));
+
+		remove_file(file_path).unwrap();
+	}
+
+	#[test]
+	fn config_file_present() {
+		let file_path = Path::new("config_file_present.toml");
+		File::create(file_path).unwrap();
+		fs::write(file_path, "config moment").unwrap();
+
+		check(file_path, "config");
+
+		let contents = fs::read_to_string(file_path).unwrap();
+
+		assert!(file_path.exists());
+		assert_eq!(contents, String::from("config moment"));
+
+		remove_file(file_path).unwrap();
+	}
+}
