@@ -44,14 +44,16 @@ jobs:
   udeps:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
         with:
           toolchain: nightly
-      - name: install udeps
-        run: cargo install cargo-udeps
-      - name: run udeps
-        run: cargo udeps
+          override: true
+
+      - uses: aig787/cargo-udeps-action@v1
+        with:
+          version: 'latest'
+          args: '--all-targets'
 
   security:
     runs-on: ubuntu-latest
