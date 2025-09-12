@@ -52,3 +52,11 @@ jobs:
         run: cargo install cargo-udeps
       - name: run udeps
         run: cargo udeps
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
