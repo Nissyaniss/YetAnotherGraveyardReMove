@@ -1,236 +1,196 @@
 use clap::{CommandFactory, Parser};
-use clap_complete::{generate, Generator};
+use clap_complete::{Generator, generate};
 use dialoguer::Confirm;
 use skim::prelude::*;
+use state::State;
 use std::env;
-use std::fmt::Write as Write2;
-use std::fs::{File, OpenOptions};
-use std::io::{self, Write};
+use std::fs::{read_dir, remove_dir_all, remove_file};
+use std::io::{self};
 use std::path::Path;
 use std::process::exit;
 use std::{fs, path::PathBuf};
-use toml::Value;
-use utils::Utils;
 
 mod args;
 mod config;
-mod utils;
+mod error;
+mod state;
 
 use args::Args;
 
-fn main() {
-	let args = Args::parse();
-	let mut files = args.paths.clone();
-	let utils = Utils::new();
+use crate::error::{BrmError, BrmErrorUtils, BrmErrorUtilsMessage};
 
-	if utils.trash_dir == Path::new("null") {
-		println!("Error getting the config file trash_dir !");
-		exit(1);
-	}
+fn main() -> Result<(), BrmError> {
+    let args = Args::parse();
+    let mut files = args.paths.clone();
+    let utils = State::new()?;
 
-	if std::env::args().len() == 1 {
-		Args::command().print_help().unwrap();
-		println!();
-		std::process::exit(0);
-	}
+    if std::env::args().len() == 1 {
+        Args::command()
+            .print_help()
+            .to_brm_error_message("Failed to print help")?;
+        exit(0);
+    }
 
-	if args.delete_trash_contents {
-		let confirmed = Confirm::new()
-			.with_prompt("Are you sure you want to delete all your trash ?")
-			.default(false)
-			.interact()
-			.unwrap();
-		if confirmed {
-			for entry in fs::read_dir(utils.trash_dir).unwrap() {
-				let path = entry.unwrap().path();
-				match fs::remove_dir_all(&path) {
-					Ok(()) => (),
-					Err(e) => {
-						if path.is_dir() {
-							eprintln!("Error removing directory {}: {}", path.display(), e);
-						} else {
-							eprintln!("Error removing file {}: {}", path.display(), e);
-						}
-					}
-				}
-			}
-		}
-		return;
-	}
+    if args.delete_trash_contents {
+        delete_trash_contents(&utils)?;
+    }
 
-	if args.trash_path_reveal {
-		println!(
-			"This is the current trash directory :\n{}",
-			utils.trash_dir.display()
-		);
-	}
+    if args.trash_path_reveal {
+        println!(
+            "This is the current trash directory :\n{}",
+            utils.trash_dir.display()
+        );
+        exit(0)
+    }
 
-	if let Some(shell) = args.generate_completions {
-		generate_completions(shell);
-		exit(0);
-	}
+    if let Some(shell) = args.generate_completions {
+        generate_completions(shell);
+        exit(0);
+    }
 
-	if args.new_trash_path.is_some() {
-		// todo add check for config file
-		if args.new_trash_path.clone().unwrap().is_file() {
-			println!("The new trash path must be a directory !");
-			exit(1);
-		}
-		let new_trash_path = args.new_trash_path.unwrap().to_str().unwrap().to_string();
-		fs::write(
-			utils.config_file,
-			format!("path_to_trash = '{new_trash_path}'"),
-		)
-		.unwrap();
-		exit(0);
-	}
+    if let Some(new_trash_path_path) = args.new_trash_path.clone() {
+        new_trash_path(new_trash_path_path.as_path(), &utils)?;
+    }
 
-	if args.fzf {
-		let options = SkimOptionsBuilder::default().multi(true).build().unwrap();
+    if args.fzf {
+        files = fzf(files)?;
+    }
 
-		let selected_items =
-			Skim::run_with(&options, None).map_or_else(Vec::new, |out| out.selected_items);
-
-		for item in &selected_items {
-			files.push(PathBuf::from(item.text().into_owned()));
-		}
-	}
-
-	if !args.restored_files.is_empty() {
-		restore(&args.restored_files, &utils);
-		exit(0);
-	}
-
-	trashing(files, &utils, &args);
+    trashing(files, &utils, &args)?;
+    Ok(())
 }
 
-fn generate_completions<G: Generator>(gen: G) {
-	let mut cmd = Args::command();
-	let Ok(bin_name) = env::current_exe() else {
-		eprintln!("Cannot get binary name");
-		exit(1);
-	};
-	let bin_name = bin_name.file_name().unwrap().to_string_lossy().to_string();
-	generate(gen, &mut cmd, &bin_name, &mut io::stdout());
+fn generate_completions<G: Generator>(r#gen: G) {
+    let mut cmd = Args::command();
+    let Ok(bin_name) = env::current_exe() else {
+        eprintln!("Cannot get binary name");
+        exit(1);
+    };
+    let Some(file_name) = bin_name.file_name() else {
+        eprintln!("Binary path is finishing with `.` or `..`. Why ?");
+        exit(1)
+    };
+    let bin_name = file_name.to_string_lossy().to_string();
+    generate(r#gen, &mut cmd, &bin_name, &mut io::stdout());
 }
 
-fn trashing(files: Vec<PathBuf>, utils: &Utils, args: &Args) {
-	for file in files {
-		if file.exists() {
-			if file.is_dir() {
-				let confirmed = Confirm::new()
-					.with_prompt(
-						"The file you are trying to trash or remove is a directory. Are you sure ?",
-					)
-					.default(false)
-					.interact()
-					.unwrap();
-
-				if confirmed {
-					move_remove_file(args.force, &file, utils);
-				}
-			} else {
-				move_remove_file(args.force, &file, utils);
-			}
-		} else {
-			println!("File or directory does not exist : {}", file.display());
-		}
-	}
+fn delete_trash_contents(utils: &State) -> Result<(), BrmError> {
+    let confirmed = Confirm::new()
+        .with_prompt("Are you sure you want to delete all your trash ?")
+        .default(false)
+        .interact()
+        .to_brm_error()?;
+    if confirmed {
+        for entry in read_dir(utils.trash_dir.clone()).to_brm_error_message(format!(
+            "Failed to read directory {}",
+            utils.trash_dir.display()
+        ))? {
+            let path = entry
+                .to_brm_error_message("Failed to read directory entry")?
+                .path();
+            if path.is_file() {
+                remove_file(&path)
+                    .to_brm_error_message(format!("Error removing file {}", path.display()))?;
+            } else {
+                remove_dir_all(&path)
+                    .to_brm_error_message(format!("Error removing directory {}", path.display()))?;
+            }
+        }
+    }
+    Ok(())
 }
 
-fn move_remove_file(force: bool, file: &PathBuf, utils: &Utils) {
-	let absolute_file_path = fs::canonicalize(file).unwrap();
-
-	if !utils.restore_config_file.exists() {
-		fs::create_dir_all(utils.restore_config_file.parent().unwrap()).unwrap();
-		File::create(&utils.restore_config_file).unwrap();
-	}
-
-	if force {
-		fs::remove_file(file).unwrap();
-		return;
-	}
-	let path_to_trash = utils
-		.trash_dir
-		.join(file.file_name().unwrap().to_str().unwrap());
-	let mut i = 1;
-	if path_to_trash.exists() {
-		loop {
-			let path_to_trash = utils
-				.trash_dir
-				.join(file.file_name().unwrap().to_str().unwrap().to_owned() + &i.to_string());
-			if !path_to_trash.exists() {
-				fs::rename(file, path_to_trash).unwrap();
-				break;
-			}
-			i += 1;
-		}
-	} else {
-		fs::rename(file, path_to_trash).unwrap();
-	}
-	let mut restore_file = OpenOptions::new()
-		.append(true)
-		.open(&utils.restore_config_file)
-		.unwrap();
-
-	if let Err(e) = writeln!(
-		restore_file,
-		"{} = '{}'",
-		file.file_name().unwrap().to_str().unwrap().to_owned() + &i.to_string(),
-		absolute_file_path.display()
-	) {
-		eprintln!("Couldn't write to file: {e}");
-	}
+fn new_trash_path(new_trash_path: &Path, utils: &State) -> Result<(), BrmError> {
+    if new_trash_path.is_file() {
+        println!("The new trash path must be a directory !");
+        exit(1);
+    }
+    let new_trash_path_display = new_trash_path.display();
+    fs::write(
+        utils.config_file.clone(),
+        format!("path_to_trash = '{new_trash_path_display}'"),
+    )
+    .to_brm_error_message("Error while writing to config")?;
+    println!("New path is now : {new_trash_path_display}");
+    exit(0);
 }
 
-fn restore(restore_files: &Vec<PathBuf>, utils: &Utils) {
-	for file in restore_files {
-		if utils.restore_config_file.exists() {
-			let config_str = fs::read_to_string(utils.restore_config_file.clone()).unwrap();
-			let mut parsed_config = config_str
-				.parse::<Value>()
-				.ok()
-				.and_then(|r| match r {
-					Value::Table(table) => Some(table),
-					_ => None,
-				})
-				.unwrap();
-			let file_name = file.file_name().unwrap().to_str().unwrap();
-			if parsed_config.get(file_name).is_some() {
-				let restore_path = PathBuf::from(
-					parsed_config
-						.get(file_name)
-						.unwrap()
-						.as_str()
-						.unwrap()
-						.to_string(),
-				);
-				if restore_path.exists() {
-					println!(
-						"File with the same name at the same place already exists ! {}",
-						restore_path.display()
-					);
-					exit(1);
-				}
-				parsed_config.remove(file_name);
-				fs::rename(utils.trash_dir.join(file.as_path()), restore_path).unwrap();
-				let mut new_restore_config_file = String::new();
-				for (key, string) in parsed_config {
-					match writeln!(
-						new_restore_config_file,
-						"{key} = '{}'",
-						string.as_str().unwrap()
-					) {
-						Ok(()) => (),
-						Err(e) => {
-							println!("Cannot write new_restore_config_file : {e}");
-						}
-					}
-				}
-				fs::write(utils.restore_config_file.clone(), new_restore_config_file).unwrap();
-			} else {
-				println!("Restore path not found for {} !", file.display());
-			}
-		}
-	}
+fn fzf(mut files: Vec<PathBuf>) -> Result<Vec<PathBuf>, BrmError> {
+    let options = SkimOptionsBuilder::default()
+        .multi(true)
+        .build()
+        .to_brm_error()?;
+
+    let selected_items = Skim::run_with(options, None).to_brm_error()?.selected_items;
+
+    for item in &selected_items {
+        files.push(PathBuf::from(item.text().into_owned()));
+    }
+
+    Ok(files)
+}
+
+fn trashing(files: Vec<PathBuf>, utils: &State, args: &Args) -> Result<(), BrmError> {
+    for file in files {
+        if file.exists() {
+            if file.is_dir() {
+                let confirmed = Confirm::new()
+                    .with_prompt(
+                        "The file you are trying to trash or remove is a directory. Are you sure ?",
+                    )
+                    .default(false)
+                    .interact()
+                    .to_brm_error()?;
+
+                if confirmed {
+                    move_remove_file(args.force, &file, utils)?;
+                }
+            } else {
+                move_remove_file(args.force, &file, utils)?;
+            }
+        } else {
+            println!("File or directory does not exist : {}", file.display());
+        }
+    }
+
+    Ok(())
+}
+
+fn move_remove_file(force: bool, file: &PathBuf, utils: &State) -> Result<(), BrmError> {
+    if force {
+        fs::remove_file(file).to_brm_error_message("Failed to remove file")?;
+    }
+
+    let Some(file_name) = file.file_name() else {
+        eprintln!("File is `.` or `..`.");
+        exit(1);
+    };
+    let file_name_owned = file_name.to_os_string();
+    let path_to_trash = utils.trash_dir.join(file_name);
+    let is_numbered = path_to_trash.exists();
+    let mut i = 1;
+    if is_numbered {
+        loop {
+            let mut file_name_numbered = file_name_owned.clone();
+            file_name_numbered.push(i.to_string());
+            let path_to_trash = utils.trash_dir.join(file_name_numbered);
+            if !path_to_trash.exists() {
+                fs::rename(file, path_to_trash.clone()).to_brm_error_message(format!(
+                    "Failed to move {} to {}",
+                    file_name.display(),
+                    path_to_trash.display()
+                ))?;
+                break;
+            }
+            i += 1;
+        }
+    } else {
+        fs::rename(file, path_to_trash.clone()).to_brm_error_message(format!(
+            "Failed to move {} to {}",
+            file_name.display(),
+            path_to_trash.display()
+        ))?;
+    }
+
+    Ok(())
 }

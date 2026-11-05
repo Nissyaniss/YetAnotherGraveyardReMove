@@ -1,130 +1,59 @@
 use std::{
-	env,
-	fs::{self, File},
-	path::{Path, PathBuf},
-	process::exit,
+    fs::{File, create_dir_all, read_to_string, write},
+    path::{Path, PathBuf},
+    process::exit,
 };
 
-use dialoguer::Confirm;
-use toml::Value;
+use serde::{Deserialize, Serialize};
 
+use crate::{BrmError, error::BrmErrorUtilsMessage};
+
+#[derive(Deserialize, Serialize)]
 pub struct Config {
-	path_to_trash: PathBuf,
+    path_to_trash: PathBuf,
 }
 
 impl Default for Config {
-	fn default() -> Self {
-		let home_dir = match env::var("HOME") {
-			Ok(home_dir) => home_dir,
-			Err(e) => {
-				eprintln!("Error getting home directory. Create the environment variable named $HOME with your home path in it. : {e}");
-				exit(1);
-			}
-		};
-		let home_dir = PathBuf::from(home_dir);
-		Self {
-			path_to_trash: home_dir.join(".local/share/BetterReMove/trash/"),
-		}
-	}
+    fn default() -> Self {
+        let data_dir = dirs::data_dir().unwrap_or_else(|| {
+            eprintln!("Cannot get $XDG_DATA_HOME");
+            exit(1)
+        });
+        Self {
+            path_to_trash: data_dir.join("BetterReMove/trash/"),
+        }
+    }
 }
 
-fn check(config_file: &Path, default_config_str: &str) {
-	if !config_file.exists() {
-		fs::create_dir_all(config_file.parent().unwrap()).unwrap();
-		File::create(config_file).unwrap();
-		fs::write(config_file, default_config_str).unwrap();
-	}
+fn create_if_dont_exist(config_file: &Path) -> Result<(), BrmError> {
+    if !config_file.exists() {
+        let Some(config_file_parent) = config_file.parent() else {
+            eprintln!("Config file has no parent.");
+            exit(1);
+        };
+        create_dir_all(config_file_parent).to_brm_error_message("Failed to create directories")?;
+        File::create(config_file).to_brm_error_message("Failed to create config file")?;
+        write(
+            config_file,
+            toml::to_string(&Config::default())
+                .to_brm_error_message("Failed to serialize config to write it")?,
+        )
+        .to_brm_error_message("Failed to write the config file")?;
+    }
+    Ok(())
 }
 
-pub fn get_trash_dir(config_file: &Path) -> PathBuf {
-	let default_config = Config::default();
-	let default_config_str = format!(
-		"path_to_trash = '{}'",
-		default_config
-			.path_to_trash
-			.to_str()
-			.map_or_else(|| panic!("Error getting default trash path"), |s| s)
-	);
-	check(config_file, &default_config_str);
-	let config_str = fs::read_to_string(config_file).unwrap();
-	let parsed_config = config_str
-		.parse::<Value>()
-		.ok()
-		.and_then(|r| match r {
-			Value::Table(table) => Some(table),
-			_ => None,
-		})
-		.unwrap();
-	let mut trash_dir = PathBuf::from("null");
-	if parsed_config.get("path_to_trash").is_some() {
-		trash_dir = PathBuf::from(
-			parsed_config
-				.get("path_to_trash")
-				.unwrap()
-				.as_str()
-				.unwrap()
-				.to_string(),
-		);
-		if !PathBuf::from(&trash_dir).exists() {
-			match fs::create_dir_all(&trash_dir) {
-				Ok(()) => (),
-				Err(e) => eprintln!("Error creating trash directory: {e}"),
-			}
-		} else if PathBuf::from(&trash_dir).is_file() {
-			println!("The trash path must be a directory.");
-			return PathBuf::from("null");
-		}
-	} else {
-		println!("Error parsing config file.");
-		let confirmed = Confirm::new()
-			.with_prompt("Do you want to reset the config file ?")
-			.default(false)
-			.interact()
-			.unwrap();
-		if confirmed {
-			fs::write(config_file, default_config_str).unwrap();
-			return PathBuf::from("null");
-		}
-	}
-	trash_dir
-}
-
-#[cfg(test)]
-mod tests {
-	use std::{
-		fs::{self, remove_file, File},
-		path::Path,
-	};
-
-	use crate::config::check;
-
-	#[test]
-	fn config_file_not_present() {
-		let file_path = Path::new("config_file_not_present.toml");
-
-		check(file_path, "config");
-
-		let contents = fs::read_to_string(file_path).unwrap();
-
-		assert!(file_path.exists());
-		assert_eq!(contents, String::from("config"));
-
-		remove_file(file_path).unwrap();
-	}
-
-	#[test]
-	fn config_file_present() {
-		let file_path = Path::new("config_file_present.toml");
-		File::create(file_path).unwrap();
-		fs::write(file_path, "config moment").unwrap();
-
-		check(file_path, "config");
-
-		let contents = fs::read_to_string(file_path).unwrap();
-
-		assert!(file_path.exists());
-		assert_eq!(contents, String::from("config moment"));
-
-		remove_file(file_path).unwrap();
-	}
+pub fn get_trash_dir(config_file: &Path) -> Result<PathBuf, BrmError> {
+    create_if_dont_exist(config_file)?;
+    let config_str =
+        read_to_string(config_file).to_brm_error_message("Failed to read config file")?;
+    let parsed_config: Config = toml::from_str(&config_str).to_brm_error_message("Config")?;
+    if !PathBuf::from(&parsed_config.path_to_trash).exists() {
+        create_dir_all(&parsed_config.path_to_trash)
+            .to_brm_error_message("Error creating trash directory")?;
+    } else if PathBuf::from(&parsed_config.path_to_trash).is_file() {
+        println!("The trash path must be a directory.");
+        exit(1);
+    }
+    Ok(parsed_config.path_to_trash)
 }

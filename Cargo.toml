@@ -1,13 +1,16 @@
 [package]
 name = "yagrm"
 version = "1.5.0"
-edition = "2021"
+edition = "2024"
 authors = [ "" ]
 
 [dependencies]
-clap = { version = "4.5.0", features = ["derive"] }
-dialoguer = "0.11.0"
-toml = "0.8.13"
-clap_complete = "4.5.2"
-homedir = "0.3.4"
-skim = "0.20.5"
+clap = { version = "4.6.7", features = ["derive"] }
+dialoguer = "0.12.0"
+clap_complete = "4.6.11"
+skim = "5.9.0"
+thiserror = "2.0.21"
+dirs = "7.0.0"
+toml = { version = "1.1.8", features = ["serde"] }
+serde = { version = "1.0.229", features = ["derive"] }
+eyre = "0.6.14"
