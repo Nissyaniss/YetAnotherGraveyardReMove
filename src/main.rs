@@ -17,9 +17,9 @@ mod state;
 
 use args::Args;
 
-use crate::error::{BrmError, BrmErrorUtils, BrmErrorUtilsMessage};
+use crate::error::{YagError, YagErrorUtils, YagErrorUtilsMessage};
 
-fn main() -> Result<(), BrmError> {
+fn main() -> Result<(), YagError> {
     let args = Args::parse();
     let mut files = args.paths.clone();
     let utils = State::new()?;
@@ -27,7 +27,7 @@ fn main() -> Result<(), BrmError> {
     if std::env::args().len() == 1 {
         Args::command()
             .print_help()
-            .to_brm_error_message("Failed to print help")?;
+            .to_yag_error_message("Failed to print help")?;
         exit(0);
     }
 
@@ -74,33 +74,33 @@ fn generate_completions<G: Generator>(r#gen: G) {
     generate(r#gen, &mut cmd, &bin_name, &mut io::stdout());
 }
 
-fn delete_trash_contents(utils: &State) -> Result<(), BrmError> {
+fn delete_trash_contents(utils: &State) -> Result<(), YagError> {
     let confirmed = Confirm::new()
         .with_prompt("Are you sure you want to delete all your trash ?")
         .default(false)
         .interact()
-        .to_brm_error()?;
+        .to_yag_error()?;
     if confirmed {
-        for entry in read_dir(utils.trash_dir.clone()).to_brm_error_message(format!(
+        for entry in read_dir(utils.trash_dir.clone()).to_yag_error_message(format!(
             "Failed to read directory {}",
             utils.trash_dir.display()
         ))? {
             let path = entry
-                .to_brm_error_message("Failed to read directory entry")?
+                .to_yag_error_message("Failed to read directory entry")?
                 .path();
             if path.is_file() {
                 remove_file(&path)
-                    .to_brm_error_message(format!("Error removing file {}", path.display()))?;
+                    .to_yag_error_message(format!("Error removing file {}", path.display()))?;
             } else {
                 remove_dir_all(&path)
-                    .to_brm_error_message(format!("Error removing directory {}", path.display()))?;
+                    .to_yag_error_message(format!("Error removing directory {}", path.display()))?;
             }
         }
     }
     Ok(())
 }
 
-fn new_trash_path(new_trash_path: &Path, utils: &State) -> Result<(), BrmError> {
+fn new_trash_path(new_trash_path: &Path, utils: &State) -> Result<(), YagError> {
     if new_trash_path.is_file() {
         println!("The new trash path must be a directory !");
         exit(1);
@@ -110,18 +110,18 @@ fn new_trash_path(new_trash_path: &Path, utils: &State) -> Result<(), BrmError> 
         utils.config_file.clone(),
         format!("path_to_trash = '{new_trash_path_display}'"),
     )
-    .to_brm_error_message("Error while writing to config")?;
+    .to_yag_error_message("Error while writing to config")?;
     println!("New path is now : {new_trash_path_display}");
     exit(0);
 }
 
-fn fzf(mut files: Vec<PathBuf>) -> Result<Vec<PathBuf>, BrmError> {
+fn fzf(mut files: Vec<PathBuf>) -> Result<Vec<PathBuf>, YagError> {
     let options = SkimOptionsBuilder::default()
         .multi(true)
         .build()
-        .to_brm_error()?;
+        .to_yag_error()?;
 
-    let selected_items = Skim::run_with(options, None).to_brm_error()?.selected_items;
+    let selected_items = Skim::run_with(options, None).to_yag_error()?.selected_items;
 
     for item in &selected_items {
         files.push(PathBuf::from(item.text().into_owned()));
@@ -130,7 +130,7 @@ fn fzf(mut files: Vec<PathBuf>) -> Result<Vec<PathBuf>, BrmError> {
     Ok(files)
 }
 
-fn trashing(files: Vec<PathBuf>, utils: &State, args: &Args) -> Result<(), BrmError> {
+fn trashing(files: Vec<PathBuf>, utils: &State, args: &Args) -> Result<(), YagError> {
     for file in files {
         if file.exists() {
             if file.is_dir() {
@@ -140,7 +140,7 @@ fn trashing(files: Vec<PathBuf>, utils: &State, args: &Args) -> Result<(), BrmEr
                     )
                     .default(false)
                     .interact()
-                    .to_brm_error()?;
+                    .to_yag_error()?;
 
                 if confirmed {
                     move_remove_file(args.force, &file, utils)?;
@@ -156,9 +156,9 @@ fn trashing(files: Vec<PathBuf>, utils: &State, args: &Args) -> Result<(), BrmEr
     Ok(())
 }
 
-fn move_remove_file(force: bool, file: &PathBuf, utils: &State) -> Result<(), BrmError> {
+fn move_remove_file(force: bool, file: &PathBuf, utils: &State) -> Result<(), YagError> {
     if force {
-        fs::remove_file(file).to_brm_error_message("Failed to remove file")?;
+        fs::remove_file(file).to_yag_error_message("Failed to remove file")?;
     }
 
     let Some(file_name) = file.file_name() else {
@@ -175,7 +175,7 @@ fn move_remove_file(force: bool, file: &PathBuf, utils: &State) -> Result<(), Br
             file_name_numbered.push(i.to_string());
             let path_to_trash = utils.trash_dir.join(file_name_numbered);
             if !path_to_trash.exists() {
-                fs::rename(file, path_to_trash.clone()).to_brm_error_message(format!(
+                fs::rename(file, path_to_trash.clone()).to_yag_error_message(format!(
                     "Failed to move {} to {}",
                     file_name.display(),
                     path_to_trash.display()
@@ -185,7 +185,7 @@ fn move_remove_file(force: bool, file: &PathBuf, utils: &State) -> Result<(), Br
             i += 1;
         }
     } else {
-        fs::rename(file, path_to_trash.clone()).to_brm_error_message(format!(
+        fs::rename(file, path_to_trash.clone()).to_yag_error_message(format!(
             "Failed to move {} to {}",
             file_name.display(),
             path_to_trash.display()

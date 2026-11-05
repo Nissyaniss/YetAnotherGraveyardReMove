@@ -4,7 +4,7 @@ use skim::options::SkimOptionsBuilderError;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-pub enum BrmError {
+pub enum YagError {
     #[error("IOError: {message} : {error}")]
     IOError { error: io::Error, message: String },
 
@@ -36,19 +36,19 @@ pub enum BrmError {
     },
 }
 
-pub trait BrmErrorUtilsMessage<T> {
-    fn to_brm_error_message(self, message: impl ToString) -> Result<T, BrmError>;
+pub trait YagErrorUtilsMessage<T> {
+    fn to_yag_error_message(self, message: impl ToString) -> Result<T, YagError>;
 }
 
-pub trait BrmErrorUtils<T> {
-    fn to_brm_error(self) -> Result<T, BrmError>;
+pub trait YagErrorUtils<T> {
+    fn to_yag_error(self) -> Result<T, YagError>;
 }
 
-impl<T> BrmErrorUtilsMessage<T> for Result<T, io::Error> {
-    fn to_brm_error_message(self, message: impl ToString) -> Result<T, BrmError> {
+impl<T> YagErrorUtilsMessage<T> for Result<T, io::Error> {
+    fn to_yag_error_message(self, message: impl ToString) -> Result<T, YagError> {
         match self {
             Ok(value) => Ok(value),
-            Err(e) => Err(BrmError::IOError {
+            Err(e) => Err(YagError::IOError {
                 error: e,
                 message: message.to_string(),
             }),
@@ -56,37 +56,37 @@ impl<T> BrmErrorUtilsMessage<T> for Result<T, io::Error> {
     }
 }
 
-impl<T> BrmErrorUtils<T> for Result<T, dialoguer::Error> {
-    fn to_brm_error(self) -> Result<T, BrmError> {
+impl<T> YagErrorUtils<T> for Result<T, dialoguer::Error> {
+    fn to_yag_error(self) -> Result<T, YagError> {
         match self {
             Ok(value) => Ok(value),
-            Err(e) => Err(BrmError::DialogError(e)),
+            Err(e) => Err(YagError::DialogError(e)),
         }
     }
 }
 
-impl<T> BrmErrorUtils<T> for Result<T, skim::options::SkimOptionsBuilderError> {
-    fn to_brm_error(self) -> Result<T, BrmError> {
+impl<T> YagErrorUtils<T> for Result<T, skim::options::SkimOptionsBuilderError> {
+    fn to_yag_error(self) -> Result<T, YagError> {
         match self {
             Ok(value) => Ok(value),
             Err(e) => match e {
                 SkimOptionsBuilderError::UninitializedField(msg) => {
-                    Err(BrmError::SkimUninitializedField(msg.to_string()))
+                    Err(YagError::SkimUninitializedField(msg.to_string()))
                 }
                 SkimOptionsBuilderError::ValidationError(msg) => {
-                    Err(BrmError::SkimValidationError(msg))
+                    Err(YagError::SkimValidationError(msg))
                 }
-                _ => Err(BrmError::SkimUnimplementedError(e)),
+                _ => Err(YagError::SkimUnimplementedError(e)),
             },
         }
     }
 }
 
-impl<T> BrmErrorUtilsMessage<T> for Result<T, toml::de::Error> {
-    fn to_brm_error_message(self, message: impl ToString) -> Result<T, BrmError> {
+impl<T> YagErrorUtilsMessage<T> for Result<T, toml::de::Error> {
+    fn to_yag_error_message(self, message: impl ToString) -> Result<T, YagError> {
         match self {
             Ok(value) => Ok(value),
-            Err(e) => Err(BrmError::DeserializeError {
+            Err(e) => Err(YagError::DeserializeError {
                 error: e,
                 message: message.to_string(),
             }),
@@ -94,11 +94,11 @@ impl<T> BrmErrorUtilsMessage<T> for Result<T, toml::de::Error> {
     }
 }
 
-impl<T> BrmErrorUtilsMessage<T> for Result<T, toml::ser::Error> {
-    fn to_brm_error_message(self, message: impl ToString) -> Result<T, BrmError> {
+impl<T> YagErrorUtilsMessage<T> for Result<T, toml::ser::Error> {
+    fn to_yag_error_message(self, message: impl ToString) -> Result<T, YagError> {
         match self {
             Ok(value) => Ok(value),
-            Err(e) => Err(BrmError::SerializeError {
+            Err(e) => Err(YagError::SerializeError {
                 error: e,
                 message: message.to_string(),
             }),
@@ -106,11 +106,11 @@ impl<T> BrmErrorUtilsMessage<T> for Result<T, toml::ser::Error> {
     }
 }
 
-impl<T> BrmErrorUtils<T> for Result<T, eyre::Report> {
-    fn to_brm_error(self) -> Result<T, BrmError> {
+impl<T> YagErrorUtils<T> for Result<T, eyre::Report> {
+    fn to_yag_error(self) -> Result<T, YagError> {
         match self {
             Ok(value) => Ok(value),
-            Err(e) => Err(BrmError::SkimEyreReport(e)),
+            Err(e) => Err(YagError::SkimEyreReport(e)),
         }
     }
 }
